@@ -19,7 +19,7 @@ jobs:
           - aarch64-pc-windows-gnu
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -33,7 +33,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-binary
           path: target/${{ matrix.target }}/release/
