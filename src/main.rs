@@ -1,29 +1,57 @@
+mod dates;
 
 use std::{env, fs::File};
 
 use anyhow::Result;
 
 use chrono::DateTime;
-use log::{info, error};
+use dates::get_last_month_time_box_utc;
+use log::{debug, error, info};
 use serde::Deserialize;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env::set_var("RUST_LOG", "info");
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info");
+    }
     pretty_env_logger::init();
     dotenvy::dotenv()?;
     let url = dotenvy::var("MEMPOOL_URL").expect("MEMPOOL_URL must be set");
-    // Find blocks for start and end of month
-    let start = 863565;
-    let end = 868326;
+    let (start_time, end_time) = get_last_month_time_box_utc();
+
+    let start_timestamp = start_time.timestamp();
+    debug!("start_timestamp: {}", start_timestamp);
+    let start_url = format!("http://{}/api/v1/mining/blocks/timestamp/{}", url, start_timestamp);
+    debug!("Start URL: {}", start_url);
+    // Query the API endpoint to find the approximate first block of the current month
+    let start_response = reqwest::get(&start_url).await?.text().await?;
+    debug!("Response: {}", start_response);
+    let start: TimeStampResponse = serde_json::from_str(&start_response)?;
+    info!("Starting with block: {:?}", start);
+
+    let end_timestamp = end_time.timestamp();
+    debug!("end_timestamp: {}", end_timestamp);
+    let end_url = format!("http://{}/api/v1/mining/blocks/timestamp/{}", url, end_timestamp);
+    debug!("End URL: {}", end_url);
+    // Query the API endpoint to find the approximate last block of the current month
+    let end_response = reqwest::get(&end_url).await?.text().await?;
+    debug!("Response: {}", end_response);
+    let end: TimeStampResponse = serde_json::from_str(&end_response)?;
+    info!("Ending with block: {:?}", end);
+
+    let start_timestamp = DateTime::parse_from_rfc3339(&start.timestamp)?.timestamp();
+    let start = if start_timestamp < start_time.timestamp() {
+        start.height + 1
+    } else {
+        start.height
+    };
+
+    let end = end.height;
+
     info!("querying for {} blocks", end - start + 1);
-    let body = reqwest::get(format!(
-        "http://{}/api/v1/blocks-bulk/{}/{}",
-        url, start, end
-    ))
-    .await?
-    .text()
-    .await?;
+    let bulk_url = format!("http://{}/api/v1/blocks-bulk/{}/{}", url, start, end);
+    debug!("Bulk URL: {}", bulk_url);
+    let body = reqwest::get(&bulk_url).await?.text().await?;
     let bulk_disabled = body.contains("config.MEMPOOL.MAX_BLOCKS_BULK_QUERY");
     if bulk_disabled {
         error!("Bulk blocks query is disabled, use different mempool instance");
@@ -35,8 +63,12 @@ async fn main() -> Result<()> {
     let result: Result<Vec<Block>, _> = serde_path_to_error::deserialize(jd);
     match result {
         Ok(block_data) => {
-            let filename = format!("blocks_{}_{}.csv", start, end);
-            info!("writing {} blocks of data to {}", block_data.len(), &filename);
+            let filename = format!("block_report_from_{}_to_{}.csv", start, end);
+            info!(
+                "writing {} blocks of data to {}",
+                block_data.len(),
+                &filename
+            );
             save_to_csv(&block_data, filename)?;
         }
         Err(err) => {
@@ -147,4 +179,11 @@ struct Orphan {
     hash: String,
     status: String,
     prevhash: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct TimeStampResponse {
+    height: u64,
+    hash: String,
+    timestamp: String,
 }
