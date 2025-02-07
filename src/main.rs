@@ -1,6 +1,6 @@
 mod dates;
 
-use std::{env, fs::File};
+use std::{env, fs::File, io};
 
 use anyhow::Result;
 
@@ -16,7 +16,15 @@ async fn main() -> Result<()> {
     }
     pretty_env_logger::init();
     dotenvy::dotenv()?;
-    let url = dotenvy::var("MEMPOOL_URL").expect("MEMPOOL_URL must be set");
+    let url = match dotenvy::var("MEMPOOL_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            info!("MEMPOOL_URL is not set. Please enter the MEMPOOL URL:");
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            input.trim().to_string()
+        }
+    };
     let (start_time, end_time) = get_last_month_time_box_utc();
 
     let start_timestamp = start_time.timestamp();
@@ -27,7 +35,7 @@ async fn main() -> Result<()> {
     let start_response = reqwest::get(&start_url).await?.text().await?;
     debug!("Response: {}", start_response);
     let start: TimeStampResponse = serde_json::from_str(&start_response)?;
-    info!("Starting with block: {:?}", start);
+    debug!("Starting with block: {:?}", start);
 
     let end_timestamp = end_time.timestamp();
     debug!("end_timestamp: {}", end_timestamp);
@@ -37,7 +45,7 @@ async fn main() -> Result<()> {
     let end_response = reqwest::get(&end_url).await?.text().await?;
     debug!("Response: {}", end_response);
     let end: TimeStampResponse = serde_json::from_str(&end_response)?;
-    info!("Ending with block: {:?}", end);
+    debug!("Ending with block: {:?}", end);
 
     let start_timestamp = DateTime::parse_from_rfc3339(&start.timestamp)?.timestamp();
     let start = if start_timestamp < start_time.timestamp() {
@@ -47,7 +55,7 @@ async fn main() -> Result<()> {
     };
 
     let end = end.height;
-
+    info!("Querying block data from {} to {}", start, end);
     info!("querying for {} blocks", end - start + 1);
     let bulk_url = format!("http://{}/api/v1/blocks-bulk/{}/{}", url, start, end);
     debug!("Bulk URL: {}", bulk_url);
