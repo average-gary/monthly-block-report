@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
 
+# Add permissions for release creation
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build:
     name: Build ${{ matrix.os }}
@@ -61,11 +66,15 @@ jobs:
           path: artifacts
           pattern: monthly-block-report-*
 
+      - name: List artifacts
+        run: ls -la artifacts/
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/*
           draft: false
           prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
